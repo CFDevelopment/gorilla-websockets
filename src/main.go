@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	//"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
+	//"log"
 	"net/http"
 
 	// "github.com/ethereum/go-ethereum/ethclient"
@@ -19,11 +21,13 @@ var upgrader = websocket.Upgrader{
 }
 
 // used for json format a response from an RPC call
-type Resp struct {
-	jsonrpc string
-	id      int
-	result  string
-}
+// type Resp struct {
+// 	jsonrpc string
+// 	id      int
+// 	result  string
+// }
+
+type Resp map[string]interface{}
 
 // used to json format an RPC call
 type Call struct {
@@ -34,84 +38,73 @@ type Call struct {
 }
 
 func main() {
-	var url = "http://localhost:8545"
-	client := http.Client{}
+	client := setupClient()
+	fmt.Println("client", client)
+}
 
-	// refactor out to structs and generic rpc method
-	peerCount, err := getPeerCount(client, url)
+/*
+	setupClient will boot either the gui or command line pre config option based on the flag that is passed in to run
+	this application. --cmd || --gui respectively. If --cmd flag is passed, the user will be prompted to enter a series
+	of http endpoints with rpc enabled clients. This will allow a user to register one or many nodes with our network
+	stats client.
+ */
+func setupClient() http.Client {
+	cmdLinePtr := flag.Bool("cmd", false, "should we boot without gui")
+	guiPtr := flag.Bool("gui", false, "should we boot with gui")
 
-	if err != nil {
-		fmt.Println("[error] peer count")
-	} else {
-		fmt.Println(peerCount)
+	flag.Parse()
+
+	cmd := *cmdLinePtr
+	gui := *guiPtr
+
+	setupOption := "cmd"
+
+	if cmd {
+		fmt.Println("[command line setup]: ", cmd)
+	} else if gui {
+		fmt.Println("[gui setup]: ", gui)
+		// future flag for switching cmdline testing to gui
+		setupOption = "gui"
 	}
 
-	lastBlock, err := getLatestBlock(client, url)
+	fmt.Println(setupOption)
+	setupClientEndpoints(setupOption)
 
-	if err != nil {
-		fmt.Println("[error] last block")
-	} else {
-		fmt.Println(lastBlock)
+	return http.Client{}
+}
+
+// additional option to listen in on multiple endpoint for various clients.
+// this will allow other developers to setup their own cluster of nodes with custom UI
+// this will also allow a single server for multiple nodes vs many API's for different nodes on a single server.
+// instead of piping a single node data within the web socket connection, you can pipe many sets of aggregated data.
+func setupClientEndpoints (setupOption string) []string {
+	var endpoints = []string{"http://localhost:8545"}
+	switch setupOption {
+	case "gui":
+		fmt.Println("Setting up GUI")
+	case "cmd":
+		fmt.Println("Setting up command line")
+		// get all node endpoints (enhanced user option) for configuration
+		fmt.Println(endpoints)
+	default:
+		panic("unrecognized escape character")
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "index.html")
-	})
+	return endpoints
+}
 
-	http.HandleFunc("/v1/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		go func(conn *websocket.Conn) {
-			for {
-				mType, msg, err := conn.ReadMessage()
-				if err != nil {
-					log.Println(err)
-					return
-				}
 
-				conn.WriteMessage(mType, msg)
-			}
-		}(conn)
-	})
+func parseCmdLineEndpoints() {
 
-	http.HandleFunc("/v2/ws", func(w http.ResponseWriter, r *http.Request) {
-		var conn, err = upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		go func(conn *websocket.Conn) {
-			for {
-				_, msg, _ := conn.ReadMessage()
-				println(string(msg))
-			}
-		}(conn)
-	})
+}
 
-	// every json every 5 minutes to channel
-	// http.HandleFunc("/v3/ws", func(w http.ResponseWriter, r *http.Request) {
-	// 	var conn, err = upgrader.Upgrade(w, r, nil)
-	// 	if err != nil {
-	// 		log.Println(err)
-	// 		return
-	// 	}
-	// 	go func(conn *websocket.Conn) {
-	// 		ch := time.Tick(5 * time.Second)
+// client, call struct
+// attach array[string] with call struct (enable multiple local nodes to share stats with single handler
+// to maximize server efficiency. Ability to run many nodes with single server api that registers to all nodes at any
+// given endpoint.
+// this would allow other developers to custom display their nodes as a subset.
+func setupRpcCalls() {
 
-	// 		// for range ch {
-	// 		// 	conn.WriteJSON(myStruct{
-	// 		// 		Username:  "cristobal",
-	// 		// 		FirstName: "chris",
-	// 		// 		LastName:  "Ffffff",
-	// 		// 	})
-	// 		// }
-	// 	}(conn)
-	// })
-
-	http.ListenAndServe(":3000", nil)
 }
 
 // returns peer count
@@ -143,6 +136,9 @@ func getPeerCount(client http.Client, url string) (string, error) {
 	if err != nil {
 		fmt.Println("[error] IO read all error")
 		return "", errors.New("[error] IO read all error")
+	} else {
+		fmt.Println("[ body - result ]")
+		fmt.Println(body)
 	}
 
 	return string(body), nil
