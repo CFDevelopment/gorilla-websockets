@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"log"
+
 	//"encoding/json"
 	"errors"
 	"flag"
@@ -75,27 +77,42 @@ func setupClient() http.Client {
 
 // additional option to listen in on multiple endpoint for various clients.
 // this will allow other developers to setup their own cluster of nodes with custom UI
-// this will also allow a single server for multiple nodes vs many API's for different nodes on a single server.
-// instead of piping a single node data within the web socket connection, you can pipe many sets of aggregated data.
-func setupClientEndpoints (setupOption string) []string {
-	var endpoints = []string{"http://localhost:8545"}
+func setupClientEndpoints (setupOption string) string {
+	var endpoint string
 	switch setupOption {
 	case "gui":
 		fmt.Println("Setting up GUI")
 	case "cmd":
 		fmt.Println("Setting up command line")
-		// get all node endpoints (enhanced user option) for configuration
-		fmt.Println(endpoints)
+		endpoint := parseCmdLineEndpoint()
+		if endpoint == "" {
+			fmt.Println("[error in setupClientEndpoint] : invalid endpoint response")
+		}
+		fmt.Println("endpoints in setupClient func:", endpoint)
 	default:
 		panic("unrecognized escape character")
 	}
 
-	return endpoints
+	return endpoint
 }
 
-
-func parseCmdLineEndpoints() {
-
+/**
+	parseCmdLineEndpoints will set the endpoint for the json rpc connection.
+	TODO: make continuous prompt/currently hardcoded to accept only one value...
+ */
+func parseCmdLineEndpoint() string {
+	var response string
+	fmt.Println("---                                  PROMPT                                      ---")
+	fmt.Println("---    Enter 'remote endpoint' for node setup                                    ---")
+	fmt.Println("---    Enter 'local' for default setup for http://localhost:8545                 ---")
+	_, err := fmt.Scanln(&response)
+	if err != nil {
+		log.Fatal(err)
+		return ""
+	} else if response == "local" {
+		return "http://localhost:8545"
+	}
+	return response
 }
 
 // client, call struct
