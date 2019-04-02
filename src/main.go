@@ -109,11 +109,7 @@ func parseCmdLineEndpoint() string {
 	return response
 }
 
-// client, call struct
-// attach array[string] with call struct (enable multiple local nodes to share stats with single handler
-// to maximize server efficiency. Ability to run many nodes with single server api that registers to all nodes at any
-// given endpoint.
-// this would allow other developers to custom display their nodes as a subset.
+
 func setupRpcCalls() []Call {
 	// list of rpc strings we will be using
 	rpcStrings := []string{
