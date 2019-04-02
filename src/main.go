@@ -31,6 +31,13 @@ type Call struct {
 	Id      string   `json:"id"`
 }
 
+/**
+	1) setup client will return your client and node endpoint
+	2) setup call structs (parses json rpc strings into above call struct)
+	3) rpcCallPulse executes each of the rpc methods through a generic rpc execution function
+	NOTE: any rpc call you need can be setup in the setupRpcCalls function
+	TODO: refactor rpcCallPulse function with go routines, channels & async.WaitGroups to handle all rpc calls
+ */
 func main() {
 	client, endpoint := setupClient()
 	rpcCallStructs := setupRpcCalls()
