@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/ioutil"
 	"bytes"
 	"encoding/json"
 	"log"
@@ -8,9 +9,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strconv"
+	"path/filepath"
 
 	"github.com/gorilla/websocket"
 )
@@ -29,18 +30,73 @@ type Call struct {
 	Id      string   `json:"id"`
 }
 
+type TypedRpc []struct {
+	NetPeerCount struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Method  struct {
+			Function string `json:"function"`
+		} `json:"method"`
+		Params []interface{} `json:"params"`
+		ID     string        `json:"id"`
+	} `json:"net_peerCount,omitempty"`
+	EthBlockNumber struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Method  struct {
+			Function string `json:"function"`
+		} `json:"method"`
+		Params []interface{} `json:"params"`
+		ID     string        `json:"id"`
+	} `json:"eth_blockNumber,omitempty"`
+	EthGetBlockByNumber struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Method  string `json:"method"`
+		Params  []struct {
+			Type         string `json:"type"`
+			Description  string `json:"description"`
+			InputStreams struct {
+				Flags     []string `json:"flags"`
+				Functions []struct {
+					Method string `json:"method"`
+					Return struct {
+						Type           string `json:"type"`
+						ReturnFunction string `json:"returnFunction"`
+					} `json:"return"`
+				} `json:"functions"`
+			} `json:"inputStreams,omitempty"`
+		} `json:"params"`
+		ID string `json:"id"`
+	} `json:"eth_getBlockByNumber,omitempty"`
+}
+
 // 													updated notes... 												  //
 // - rpcConfig.json will contain the typed rpc call and dependency objects in json format.
 // - The user can dynamically subscribe to any subset of rpc api calls via command line or with our custom web
 // 	 interface.
 // - Use the --cmd flag on launch to default node setup localhost:8454
 // - our custom rpc type config allows for a dynamic and resource efficient query system.
-// 																	 												  //
-// 																	 												  //
 func main() {
-	client, endpoint, rpcDependencies, rpcCallStructs := initNode() // all basic setup is done here
-	rpcCallPulse(client, endpoint, rpcDependencies, rpcCallStructs) // call this to generate node stats
-	fmt.Println(rpcCallStructs)
+	typedRpcConfig := unmarshalConfigFile() // the above struct with user defined rpc methods
+	// client, endpoint, rpcDependencies, rpcCallStructs := initNode() // all basic setup is done here
+	// rpcCallPulse(client, endpoint, rpcDependencies, rpcCallStructs) // call this to generate node stats
+	// fmt.Println(rpcCallStructs)
+}
+
+func unmarshalConfigFile() *TypedRpc {
+	path, _ := filepath.Abs("./src/config/rpcConfig.json")
+	file, err := ioutil.ReadFile(path)
+
+	if err != nil {
+		fmt.Println("error", err)
+	}
+
+	tyRpc := new(TypedRpc)
+	err = json.Unmarshal([]byte(file), tyRpc)
+
+	if err != nil {
+		fmt.Println("error parsing json file to typed rpc struct", err)
+	}
+
+	return tyRpc
 }
 
 func initNode() (http.Client, string, map[string][]string, []Call){

@@ -2,7 +2,9 @@
   {
     "net_peerCount" : {
       "jsonrpc": "2.0",
-      "method": "net_peerCount",
+      "method": {
+        "function": "net_peerCount"
+      },
       "params": [],
       "id": "74"
     }
@@ -10,7 +12,9 @@
   {
     "eth_blockNumber": {
       "jsonrpc": "2.0",
-      "method": "net_peerCount",
+      "method": {
+        "function": "eth_blockNumber"
+      },
       "params": [],
       "id": "1"
     }
