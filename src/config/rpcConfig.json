@@ -1,0 +1,47 @@
+[
+  {
+    "net_peerCount" : {
+      "jsonrpc": "2.0",
+      "method": "net_peerCount",
+      "params": [],
+      "id": "74"
+    }
+  },
+  {
+    "eth_blockNumber": {
+      "jsonrpc": "2.0",
+      "method": "net_peerCount",
+      "params": [],
+      "id": "1"
+    }
+  },
+  {
+    "eth_getBlockByNumber": {
+      "jsonrpc": "2.0",
+      "method": "net_peerCount",
+      "params": [
+        {
+          "type": "[32 bytes]",
+          "description": "Hash of a block",
+          "inputStreams": {
+            "flags": ["earliest", "latest", "pending"],
+            "functions": [
+              {
+                "method": "eth_blockNumber",
+                "return": {
+                  "type": "block object",
+                  "returnFunction": "eth_getBlockByHash"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "bool",
+          "description": "If true it returns the full transaction objects, if false only the hashes of the transactions."
+        }
+      ],
+      "id": "1"
+    }
+  }
+]
