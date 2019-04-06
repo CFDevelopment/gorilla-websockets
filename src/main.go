@@ -3,20 +3,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"log"
-	"strings"
-
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
-	// "github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gorilla/websocket"
 )
 
-// upgrade original http request to ws
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -31,26 +29,17 @@ type Call struct {
 	Id      string   `json:"id"`
 }
 
-/**
-	1) setup client will return your client and node endpoint
-	2) setup call structs (parses json rpc strings into above call struct)
-	3) rpcCallPulse executes each of the rpc methods through a generic rpc execution function
-	NOTE: any rpc call you need can be setup in the setupRpcCalls function
-	TODO: refactor rpcCallPulse function with go routines, channels & async.WaitGroups to handle all rpc calls
- */
 func main() {
-	client, endpoint := setupClient()
-	rpcCallStructs := setupRpcCalls()
-	rpcCallPulse(client, endpoint, rpcCallStructs)
-	fmt.Println(rpcCallStructs)
+	client, endpoint, rpcCallStructs := initNode()     // all basic setup is done here
+	sequenceRpcCalls(client, endpoint, rpcCallStructs) // the non dynamic way to do this -> later refactor
 }
 
-/*
-	setupClient will boot either the gui or command line pre config option based on the flag that is passed in to run
-	this application. --cmd || --gui respectively. If --cmd flag is passed, the user will be prompted to enter a series
-	of http endpoints with rpc enabled clients. This will allow a user to register one or many nodes with our network
-	stats client.
- */
+func initNode() (http.Client, string, []Call) {
+	client, endpoint := setupClient()
+	rpcCallStructs := setupRpcCalls()
+	return client, endpoint, rpcCallStructs
+}
+
 func setupClient() (http.Client, string) {
 	cmdLinePtr := flag.Bool("cmd", false, "should we boot without gui")
 	guiPtr := flag.Bool("gui", false, "should we boot with gui")
@@ -76,9 +65,7 @@ func setupClient() (http.Client, string) {
 	return http.Client{}, endpoint
 }
 
-// additional option to listen in on multiple endpoint for various clients.
-// this will allow other developers to setup their own cluster of nodes with custom UI
-func setupClientEndpoints (setupOption string) string {
+func setupClientEndpoints(setupOption string) string {
 	var endpoint string
 	switch setupOption {
 	case "gui":
@@ -97,10 +84,6 @@ func setupClientEndpoints (setupOption string) string {
 	return endpoint
 }
 
-/**
-	parseCmdLineEndpoints will set the endpoint for the json rpc connection.
-	TODO: make continuous prompt/currently hardcoded to accept only one value...
- */
 func parseCmdLineEndpoint() string {
 	var response string
 	fmt.Println("---                                  PROMPT                                      ---")
@@ -116,22 +99,21 @@ func parseCmdLineEndpoint() string {
 	return response
 }
 
-
+// rpc calls => structs
 func setupRpcCalls() []Call {
-	// list of rpc strings we will be using
 	rpcStrings := []string{
 		`{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":"74"}`,
 		`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":"1"}`,
+		`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["eth_blockNumber", "true"],"id":"1"}`,
 	}
-	// parse these strings into structs
 	rpcStructs := initializeCallStructs(rpcStrings)
 	return rpcStructs
 }
 
-// will be called once in setup
-func initializeCallStructs (rpcStrings []string) []Call {
+func initializeCallStructs(rpcStrings []string) []Call {
 	callSlice := []Call{}
-	for i := 0; i <len(rpcStrings); i++ {
+
+	for i := 0; i < len(rpcStrings); i++ {
 		c := new(Call)
 		err := json.Unmarshal([]byte(rpcStrings[i]), c)
 
@@ -141,32 +123,52 @@ func initializeCallStructs (rpcStrings []string) []Call {
 		callSlice = append(callSlice, *c)
 		fmt.Println(c)
 	}
+
 	return callSlice
 }
 
-/**
-	Will iterate through call structs & execute their rpc methods
-	TODO: Refactor to go routines and channels
- */
-func rpcCallPulse(client http.Client, url string, calls []Call) {
-	// loop through calls & execute each rpc method
-	for i := 0; i < len(calls); i++ {
-		executeRpcCall(client, url, calls[i])
+// sequence the calls manually and execute all calls.
+// TODO: needs to have a way to handle errors and dependent calls/input/output
+func sequenceRpcCalls(client http.Client, url string, calls []Call) {
+	peerCount, err := executeRpcCall(client, url, calls[0])
+
+	if err != nil {
+		fmt.Println("[error] peer count")
 	}
 
+	fmt.Println("peercount", peerCount["result"])
+
+	blockNumber, err := executeRpcCall(client, url, calls[1])
+
+	fmt.Println("block num", blockNumber["result"])
+
+	if err != nil {
+		fmt.Println("[error] block number")
+	}
+
+	str := fmt.Sprint(blockNumber["result"])
+	newArr := []string{str, "true"}
+	calls[2].Params = newArr // this will all be dynamic later -> future refactor
+
+	block, err := executeRpcCall(client, url, calls[2])
+
+	if err != nil {
+		fmt.Println("[error] block")
+	}
+
+	fmt.Println("blockNumber", block["result"])
 }
 
-func executeRpcCall(client http.Client, url string, call Call) (string, error) {
+func executeRpcCall(client http.Client, url string, call Call) (Resp, error) {
 	paramString := parseArrayToString(call.Params)
-	fmt.Println(call.Method, call.Jsonrpc, call.Params)
-	jsonStr := `{"jsonrpc":"`+ call.Jsonrpc +`","method":"`+ call.Method +`","params":[`+ paramString +`],"id":`+ call.Id +`}`
+	jsonStr := `{"jsonrpc":"` + call.Jsonrpc + `","method":"` + call.Method + `","params":[` + paramString + `],"id":` + call.Id + `}`
 	jsonBytes := []byte(jsonStr)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
 
 	if err != nil {
 		fmt.Println("[error] RPC post request")
-		return "", errors.New("[error] RPC post request")
+		return nil, errors.New("[error] RPC post request")
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -174,7 +176,7 @@ func executeRpcCall(client http.Client, url string, call Call) (string, error) {
 
 	if err != nil {
 		fmt.Println("[error] RPC post request")
-		return "", errors.New("[error] RPC post request")
+		return nil, errors.New("[error] RPC post request")
 	}
 
 	defer resp.Body.Close()
@@ -183,24 +185,41 @@ func executeRpcCall(client http.Client, url string, call Call) (string, error) {
 
 	if err != nil {
 		fmt.Println("[error] IO read all error")
-		return "", errors.New("[error] IO read all error")
+		return nil, errors.New("[error] IO read all error")
 	} else {
 		fmt.Println("[ body - result ]")
 		fmt.Println(string(body))
 	}
 
-	return string(body), nil
+	r := new(Resp)
+	err = json.Unmarshal([]byte(body), r)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("response", r)
+
+	return *r, nil
 }
 
-/**
-	parseArrayToString will take a param array and return string delimited by comma for json rpc param string
- */
-func parseArrayToString (params []string) string {
+// parseArrayToString returns string with proper quotes. Returns empty string if there are no params.
+func parseArrayToString(params []string) string {
+	str := ""
+
 	if len(params) == 0 {
 		return ""
 	}
-	justString := strings.Join(params,",")
-	return justString
+
+	for i := 0; i < len(params); i++ {
+		if strings.EqualFold("true", params[i]) != true && strings.EqualFold("false", params[i]) != true {
+			str = str + strconv.Quote(params[i])
+		} else {
+			str = str + params[i]
+		}
+		if i < len(params)-1 {
+			str = str + ", "
+		}
+	}
+	return str
 }
-
-
