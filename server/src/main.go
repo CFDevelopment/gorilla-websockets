@@ -188,6 +188,17 @@ func sequenceRpcCalls(client http.Client, url string, calls []Call) {
 	}
 
 	fmt.Println("blockNumber", block["result"])
+
+	// block["result"]
+
+	//
+
+	// blockObj := new(Block)
+	// err = json.Unmarshal([]byte(block), blockObj)
+
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func executeRpcCall(client http.Client, url string, call Call) (Resp, error) {
@@ -237,11 +248,9 @@ func executeRpcCall(client http.Client, url string, call Call) (Resp, error) {
 // parseArrayToString returns string with proper quotes. Returns empty string if there are no params.
 func parseArrayToString(params []string) string {
 	str := ""
-
 	if len(params) == 0 {
 		return ""
 	}
-
 	for i := 0; i < len(params); i++ {
 		if strings.EqualFold("true", params[i]) != true && strings.EqualFold("false", params[i]) != true {
 			str = str + strconv.Quote(params[i])
