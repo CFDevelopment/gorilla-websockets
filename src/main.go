@@ -1,17 +1,16 @@
 package main
 
 import (
-	"io/ioutil"
 	"bytes"
 	"encoding/json"
-	"log"
-	"strings"
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"strconv"
-	"path/filepath"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -30,80 +29,15 @@ type Call struct {
 	Id      string   `json:"id"`
 }
 
-type TypedRpc []struct {
-	NetPeerCount struct {
-		Jsonrpc string `json:"jsonrpc"`
-		Method  struct {
-			Function string `json:"function"`
-		} `json:"method"`
-		Params []interface{} `json:"params"`
-		ID     string        `json:"id"`
-	} `json:"net_peerCount,omitempty"`
-	EthBlockNumber struct {
-		Jsonrpc string `json:"jsonrpc"`
-		Method  struct {
-			Function string `json:"function"`
-		} `json:"method"`
-		Params []interface{} `json:"params"`
-		ID     string        `json:"id"`
-	} `json:"eth_blockNumber,omitempty"`
-	EthGetBlockByNumber struct {
-		Jsonrpc string `json:"jsonrpc"`
-		Method  string `json:"method"`
-		Params  []struct {
-			Type         string `json:"type"`
-			Description  string `json:"description"`
-			InputStreams struct {
-				Flags     []string `json:"flags"`
-				Functions []struct {
-					Method string `json:"method"`
-					Return struct {
-						Type           string `json:"type"`
-						ReturnFunction string `json:"returnFunction"`
-					} `json:"return"`
-				} `json:"functions"`
-			} `json:"inputStreams,omitempty"`
-		} `json:"params"`
-		ID string `json:"id"`
-	} `json:"eth_getBlockByNumber,omitempty"`
-}
-
-// 													updated notes... 												  //
-// - rpcConfig.json will contain the typed rpc call and dependency objects in json format.
-// - The user can dynamically subscribe to any subset of rpc api calls via command line or with our custom web
-// 	 interface.
-// - Use the --cmd flag on launch to default node setup localhost:8454
-// - our custom rpc type config allows for a dynamic and resource efficient query system.
 func main() {
-	typedRpcConfig := unmarshalConfigFile() // the above struct with user defined rpc methods
-	// client, endpoint, rpcDependencies, rpcCallStructs := initNode() // all basic setup is done here
-	// rpcCallPulse(client, endpoint, rpcDependencies, rpcCallStructs) // call this to generate node stats
-	// fmt.Println(rpcCallStructs)
+	client, endpoint, rpcCallStructs := initNode()     // all basic setup is done here
+	sequenceRpcCalls(client, endpoint, rpcCallStructs) // the non dynamic way to do this -> later refactor
 }
 
-func unmarshalConfigFile() *TypedRpc {
-	path, _ := filepath.Abs("./src/config/rpcConfig.json")
-	file, err := ioutil.ReadFile(path)
-
-	if err != nil {
-		fmt.Println("error", err)
-	}
-
-	tyRpc := new(TypedRpc)
-	err = json.Unmarshal([]byte(file), tyRpc)
-
-	if err != nil {
-		fmt.Println("error parsing json file to typed rpc struct", err)
-	}
-
-	return tyRpc
-}
-
-func initNode() (http.Client, string, map[string][]string, []Call){
+func initNode() (http.Client, string, []Call) {
 	client, endpoint := setupClient()
 	rpcCallStructs := setupRpcCalls()
-	rpcDependencies := defineRpcDependencies()
-	return client, endpoint, rpcDependencies, rpcCallStructs
+	return client, endpoint, rpcCallStructs
 }
 
 func setupClient() (http.Client, string) {
@@ -131,7 +65,7 @@ func setupClient() (http.Client, string) {
 	return http.Client{}, endpoint
 }
 
-func setupClientEndpoints (setupOption string) string {
+func setupClientEndpoints(setupOption string) string {
 	var endpoint string
 	switch setupOption {
 	case "gui":
@@ -165,22 +99,21 @@ func parseCmdLineEndpoint() string {
 	return response
 }
 
+// rpc calls => structs
 func setupRpcCalls() []Call {
-	// list of rpc strings we will be using
 	rpcStrings := []string{
 		`{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":"74"}`,
 		`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":"1"}`,
-		`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["eth_blockNumber", "true"],"id":1}`,
-		//`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["eth_blockNumber", true],"id":1}`, //first inp = res (blocknum)
+		`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["eth_blockNumber", "true"],"id":"1"}`,
 	}
-	// parse these strings into structs
 	rpcStructs := initializeCallStructs(rpcStrings)
 	return rpcStructs
 }
 
-func initializeCallStructs (rpcStrings []string) []Call {
+func initializeCallStructs(rpcStrings []string) []Call {
 	callSlice := []Call{}
-	for i := 0; i <len(rpcStrings); i++ {
+
+	for i := 0; i < len(rpcStrings); i++ {
 		c := new(Call)
 		err := json.Unmarshal([]byte(rpcStrings[i]), c)
 
@@ -190,61 +123,45 @@ func initializeCallStructs (rpcStrings []string) []Call {
 		callSlice = append(callSlice, *c)
 		fmt.Println(c)
 	}
+
 	return callSlice
 }
 
-func rpcCallPulse(client http.Client, url string, rpcDependencies map[string][]string, calls []Call) {
-	// loop through calls & execute each rpc method
-	// creates method => response mapping to lookup results if needed by other functions as params
-	respMapping := make(map[string]Resp)
-	for i := 0; i < len(calls); i++ {
-		// should add a middleware to check for needed inputs (ex -> block number => get block by number(block num))
-		// if params length = 0 no check is needed
-		// if there are params, check if the function can be executed independently or needs input from other func input
-		if len(calls[i].Params) == 0 {
-			fmt.Println("0 params")
-			resp, err := executeRpcCall(client, url, calls[i])
-			// will check it with our mapping, if it has not been done yet, add it to queue & then execute at end
-			// have a basic alg that dynamically executes all methods
-			// the end result will be registering all the rpc methods you want, adding their predecessors and execute
-			if err != nil {
-				fmt.Println(err)
-			}
+// sequence the calls manually and execute all calls.
+// TODO: needs to have a way to handle errors and dependent calls/input/output
+func sequenceRpcCalls(client http.Client, url string, calls []Call) {
+	peerCount, err := executeRpcCall(client, url, calls[0])
 
-			respMapping[calls[i].Method] = resp
-		} else {
-			fmt.Println("more than 0 params")
-			parseArrayToString(calls[i].Params)
-			// checkRpcDependencies(rpcDependencies, respMapping, calls[i])
-			// if the dep has not been executed => put in queue
-		}
+	if err != nil {
+		fmt.Println("[error] peer count")
 	}
-	fmt.Println("respMapping", respMapping)
-}
 
-func defineRpcDependencies() map[string][]string {
-	// eth_getBlockByNumber needs eth_blockNumber result
-	// setup any future method param dependencies here
-	var rpcDependencies = map[string][]string{}
-	rpcDependencies["eth_getBlockByNumber"] = []string{"eth_blockNumber"}
-	return rpcDependencies
-}
+	fmt.Println("peercount", peerCount["result"])
 
-/**
-	checkRpcDependencies is used to determine if a given rpc method being executed in any given go routine needs
-	another method's output as input for the current param array. The dependencies mapping can lookup a method and if
-	they require other methods to be invoked. The respMapping maps a method to a rpc response struct, which will be used
-	to indicate what rpc methods have been invoked.
- */
-func checkRpcDependencies(dependencies map[string][]string, respMapping map[string]Resp, call Call) {
-	// want to actually change the given call object to alter the params in the struct
+	blockNumber, err := executeRpcCall(client, url, calls[1])
+
+	fmt.Println("block num", blockNumber["result"])
+
+	if err != nil {
+		fmt.Println("[error] block number")
+	}
+
+	str := fmt.Sprint(blockNumber["result"])
+	newArr := []string{str, "true"}
+	calls[2].Params = newArr // this will all be dynamic later -> future refactor
+
+	block, err := executeRpcCall(client, url, calls[2])
+
+	if err != nil {
+		fmt.Println("[error] block")
+	}
+
+	fmt.Println("blockNumber", block["result"])
 }
 
 func executeRpcCall(client http.Client, url string, call Call) (Resp, error) {
 	paramString := parseArrayToString(call.Params)
-	fmt.Println("param string [executeRpcCall]", paramString)
-	jsonStr := `{"jsonrpc":"`+ call.Jsonrpc +`","method":"`+ call.Method +`","params":[`+ paramString +`],"id":`+ call.Id +`}`
-	fmt.Println("jsonString:", jsonStr)
+	jsonStr := `{"jsonrpc":"` + call.Jsonrpc + `","method":"` + call.Method + `","params":[` + paramString + `],"id":` + call.Id + `}`
 	jsonBytes := []byte(jsonStr)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
@@ -286,25 +203,23 @@ func executeRpcCall(client http.Client, url string, call Call) (Resp, error) {
 	return *r, nil
 }
 
-/**
-	parseArrayToString will take a json rpc string and format it such that it will unqoute bool values and
-	add quotes to non
-	TODO: refactor for functions
- */
-func parseArrayToString (params []string) string {
-	formattedInput := make([]string, len(params))
+// parseArrayToString returns string with proper quotes. Returns empty string if there are no params.
+func parseArrayToString(params []string) string {
+	str := ""
+
 	if len(params) == 0 {
 		return ""
 	}
+
 	for i := 0; i < len(params); i++ {
 		if strings.EqualFold("true", params[i]) != true && strings.EqualFold("false", params[i]) != true {
-			formattedInput = append(formattedInput, strconv.Quote(params[i]))
+			str = str + strconv.Quote(params[i])
 		} else {
-			formattedInput = append(formattedInput, params[i])
+			str = str + params[i]
+		}
+		if i < len(params)-1 {
+			str = str + ", "
 		}
 	}
- 	justString := strings.Join(formattedInput,",")
-	return justString
+	return str
 }
-
-
